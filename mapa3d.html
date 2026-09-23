@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vista 3D sobre terreno real · Sistema de agua Marcala</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+:root{--ink:#10262e;--panel:#fff;--line:#cdd9dc;--muted:#5d6f76;--water:#0d3b4f}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:"Space Grotesk",system-ui,sans-serif;color:var(--ink)}
+#map{position:absolute;inset:0}
+.mono{font-family:"IBM Plex Mono",monospace}
+.topbar{position:absolute;top:0;left:0;right:0;z-index:3;padding:12px 16px;pointer-events:none;
+  background:linear-gradient(180deg,rgba(9,40,52,.82),rgba(9,40,52,0))}
+.topbar h1{margin:0;font-size:15px;font-weight:600;color:#eaf6f6}
+.topbar p{margin:2px 0 0;font-size:12px;color:#bfe0e2;font-family:"IBM Plex Mono",monospace}
+.panel{position:absolute;z-index:3;background:rgba(255,255,255,.94);border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 8px 24px -14px rgba(0,0,0,.5);backdrop-filter:blur(4px)}
+.ctrl{top:64px;right:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.ctrl .grp{display:flex;flex-direction:column;gap:5px}
+.ctrl .lbl{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.07em;color:var(--muted)}
+.ctrl .row{display:flex;gap:5px}
+.btn{font-family:"IBM Plex Mono",monospace;font-size:11px;border:1px solid var(--line);background:#fff;color:var(--ink);
+  padding:5px 9px;border-radius:8px;cursor:pointer;transition:.15s}
+.btn[aria-pressed="true"]{background:var(--water);color:#fff;border-color:var(--water)}
+.legend{left:12px;bottom:26px;padding:10px 12px;font-size:12px;max-width:60%}
+.legend h4{margin:0 0 6px;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.06em;color:var(--muted)}
+.legend .lg{display:flex;align-items:center;gap:7px;margin:3px 0}
+.legend svg{flex:0 0 auto}
+.legend .poly{width:15px;height:11px;background:rgba(201,138,46,.35);border:1.5px solid #b8791f;display:inline-block;flex:0 0 auto}
+.legend .ramp{height:10px;border-radius:5px;background:linear-gradient(90deg,#3f8f5f,#d3ad52,#a9662f);margin:4px 0 2px}
+.legend .scale{display:flex;justify-content:space-between;font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--muted)}
+.mk{position:relative;cursor:pointer}
+.mk svg{display:block;filter:drop-shadow(0 1.5px 2px rgba(0,0,0,.55))}
+.mklab{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:1px;
+  font:600 10px "IBM Plex Mono",monospace;color:#12232a;background:rgba(255,255,255,.82);padding:0 3px;border-radius:3px;white-space:nowrap;pointer-events:none}
+.note{left:12px;top:64px;right:auto;max-width:320px;padding:12px 14px;font-size:12.5px;color:#37474d;display:none}
+.note b{color:var(--ink)}
+.maplibregl-popup-content{font-family:"Space Grotesk",sans-serif;border-radius:10px}
+.lp-code{font-family:"IBM Plex Mono",monospace;color:#12869a;font-weight:600;font-size:12px}
+.lp-name{font-weight:600;font-size:15px;margin:1px 0 4px}
+.lp-kv{font-family:"IBM Plex Mono",monospace;font-size:12px;color:#37474d}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="topbar">
+  <h1>Sistema de agua · Zona Norte de Marcala — vista 3D sobre terreno real</h1>
+  <p>Relieve real · componentes por tipo y altitud · área de reserva</p>
+</div>
+<div class="panel ctrl">
+  <div class="grp"><span class="lbl">MAPA BASE</span>
+    <div class="row">
+      <button class="btn" id="b-sat" aria-pressed="true">Satélite</button>
+      <button class="btn" id="b-calles">Calles</button>
+    </div>
+  </div>
+  <div class="grp"><span class="lbl">RELIEVE</span>
+    <div class="row">
+      <button class="btn" data-ex="1">×1</button>
+      <button class="btn" data-ex="1.6" aria-pressed="true">×1.6</button>
+      <button class="btn" data-ex="2.5">×2.5</button>
+    </div>
+  </div>
+  <button class="btn" id="b-reset">Reencuadrar</button>
+</div>
+<div class="panel legend">
+  <h4>SIMBOLOGÍA</h4>
+  <div class="lg"><svg width="16" height="16"><polygon points="8,2 14,13 2,13" fill="#6f8f6a" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>Obra toma</div>
+  <div class="lg"><svg width="16" height="16"><rect x="4" y="4" width="8.5" height="8.5" transform="rotate(45 8 8)" fill="#6f8f6a" stroke="#fff" stroke-width="1.4"/></svg>Cámara derivadora</div>
+  <div class="lg"><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#6f8f6a" stroke="#fff" stroke-width="1.4"/></svg>Tanque</div>
+  <div class="lg"><span class="poly"></span>Área de reserva</div>
+  <h4 style="margin-top:7px">ALTITUD (msnm)</h4>
+  <div class="ramp"></div>
+  <div class="scale"><span id="emin">1365</span><span id="emax">1719</span></div>
+</div>
+<div class="panel note" id="note">
+  <b>No se ve el terreno.</b> Esta vista carga el mapa y el relieve desde servidores por internet.
+  Para verla, abrí este archivo publicado en <b>GitHub Pages</b> o servido por web (no funciona en vistas previas
+  con restricción de red). El resto de la interfaz sí carga.
+</div>
+<script>
+const DATA = {"puntos":[{"id":"OT01","tipo":"Obra toma","nombre":"Obra toma","lat":14.093317,"lon":-88.05265,"altitud":1719,"descripcion_original":"Obra Toma","en_red":true},{"id":"CD01","tipo":"Cámara derivadora","nombre":"Musula","lat":14.152583,"lon":-88.061283,"altitud":1598,"descripcion_original":"Cámara Derivadora de Musula","en_red":true},{"id":"CD02","tipo":"Cámara derivadora","nombre":"Ocotal Oscuro","lat":14.177267,"lon":-88.04045,"altitud":1469,"descripcion_original":"Cámara Derivadora de Ocotal Oscuro","en_red":true},{"id":"CD03","tipo":"Cámara derivadora","nombre":"Cruz de Lajas","lat":14.20245,"lon":-88.042867,"altitud":1434,"descripcion_original":"Cámara Derivadora Cruz de Lajas","en_red":true},{"id":"CD04","tipo":"Cámara derivadora","nombre":"El Pelón","lat":14.22745,"lon":-88.076833,"altitud":1580,"descripcion_original":"Cámara Derivadora El Pelón","en_red":true},{"id":"TQ01","tipo":"Tanque","nombre":"sisiguara","lat":14.1537,"lon":-88.065367,"altitud":1445,"descripcion_original":"Tanque Sigiguara","en_red":true},{"id":"TQ02","tipo":"Tanque","nombre":"Chusmuy","lat":14.178233,"lon":-88.0454,"altitud":1365,"descripcion_original":"Tanque Chusmuy","en_red":true},{"id":"TQ03","tipo":"Tanque","nombre":"El Carmen","lat":14.18075,"lon":-88.038067,"altitud":1386,"descripcion_original":"Tanque El Carmen","en_red":true},{"id":"TQ04","tipo":"Tanque","nombre":"La Chorrera","lat":14.19775,"lon":-88.0415,"altitud":1418,"descripcion_original":"Tanque La Chorrera","en_red":true},{"id":"TQ05","tipo":"Tanque","nombre":"La Estanzuela","lat":14.20245,"lon":-88.042867,"altitud":1434,"descripcion_original":"Tanque La Estanzuela (mismo lugar de CD Cruz de L.)","en_red":true},{"id":"TQ06","tipo":"Tanque","nombre":"Las Vegas","lat":14.217933,"lon":-88.081233,"altitud":1427,"descripcion_original":"Tanque Las Vagas","en_red":true},{"id":"TQ07","tipo":"Tanque","nombre":"Queseras","lat":14.19655,"lon":-88.07415,"altitud":1475,"descripcion_original":"Tanque Queseras","en_red":true},{"id":"TQ08","tipo":"Tanque","nombre":"Santa Rosita","lat":14.249133,"lon":-88.050317,"altitud":1459,"descripcion_original":"Tanque Santa Rosita","en_red":true},{"id":"TQ09","tipo":"Tanque","nombre":"CILNA 28 de Mayo","lat":14.17425,"lon":-88.042017,"altitud":1401,"descripcion_original":"Tanque CILNA 28 de Mayo","en_red":true},{"id":"TQ10","tipo":"Tanque","nombre":"El Pelón","lat":14.227017,"lon":-88.076867,"altitud":1573,"descripcion_original":"Tanque El Pelón","en_red":true}],"conexiones":[{"tramo":"TR01","desde":"OT01","hasta":"CD01","tipo_linea":"Línea principal","sentido":"Desde → Hasta","alt_desde":1719,"alt_hasta":1598,"desnivel":121,"longitud_m":6656.0,"gravedad_ok":true},{"tramo":"TR02","desde":"CD01","hasta":"CD02","tipo_linea":"Línea principal","sentido":"Desde → Hasta","alt_desde":1598,"alt_hasta":1469,"desnivel":129,"longitud_m":3547.0,"gravedad_ok":true},{"tramo":"TR03","desde":"CD01","hasta":"TQ01","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1598,"alt_hasta":1445,"desnivel":153,"longitud_m":458.0,"gravedad_ok":true},{"tramo":"TR04","desde":"CD02","hasta":"CD03","tipo_linea":"Línea principal","sentido":"Desde → Hasta","alt_desde":1469,"alt_hasta":1434,"desnivel":35,"longitud_m":2812.0,"gravedad_ok":true},{"tramo":"TR05","desde":"CD02","hasta":"TQ02","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1469,"alt_hasta":1365,"desnivel":104,"longitud_m":544.0,"gravedad_ok":true},{"tramo":"TR06","desde":"CD02","hasta":"TQ03","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1469,"alt_hasta":1386,"desnivel":83,"longitud_m":465.0,"gravedad_ok":true},{"tramo":"TR07","desde":"CD03","hasta":"TQ04","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1434,"alt_hasta":1418,"desnivel":16,"longitud_m":543.0,"gravedad_ok":true},{"tramo":"TR08","desde":"CD03","hasta":"TQ05","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1434,"alt_hasta":1434,"desnivel":0,"longitud_m":0.0,"gravedad_ok":true},{"tramo":"TR09","desde":"CD01","hasta":"CD04","tipo_linea":"Línea principal","sentido":"Desde → Hasta","alt_desde":1598,"alt_hasta":1580,"desnivel":18,"longitud_m":8492.0,"gravedad_ok":true},{"tramo":"TR10","desde":"CD04","hasta":"TQ06","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1580,"alt_hasta":1427,"desnivel":153,"longitud_m":1160.0,"gravedad_ok":true},{"tramo":"TR11","desde":"CD04","hasta":"TQ07","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1580,"alt_hasta":1475,"desnivel":105,"longitud_m":3448.0,"gravedad_ok":true},{"tramo":"TR12","desde":"CD04","hasta":"TQ08","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1580,"alt_hasta":1459,"desnivel":121,"longitud_m":3739.0,"gravedad_ok":true},{"tramo":"TR13","desde":"CD02","hasta":"TQ09","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1469,"alt_hasta":1401,"desnivel":68,"longitud_m":376.0,"gravedad_ok":true},{"tramo":"TR14","desde":"CD04","hasta":"TQ10","tipo_linea":"Ramal","sentido":"Desde → Hasta","alt_desde":1580,"alt_hasta":1573,"desnivel":7,"longitud_m":48.0,"gravedad_ok":true}],"area_reserva":{"nombre":"10 comunidades no corroborada","poligono":[[-88.052258,14.093517],[-88.052729,14.093891],[-88.053519,14.094096],[-88.054112,14.093848],[-88.055224,14.093192],[-88.056134,14.092781],[-88.056993,14.092291],[-88.057174,14.091721],[-88.057043,14.090243],[-88.056815,14.089394],[-88.056447,14.088802],[-88.055775,14.088513],[-88.055053,14.088772],[-88.054366,14.089218],[-88.053615,14.08968],[-88.052989,14.090053],[-88.052483,14.09052],[-88.052177,14.091046],[-88.051962,14.091538],[-88.051885,14.092203]],"area_km2":0.24,"area_ha":23.99,"perimetro_m":1840.0,"fuente":"KMZ del usuario (no corroborada)"},"proteccion":{"centro":"OT01","radio_m":250}};
+const P = DATA.puntos.filter(p=>p.lat!=null), RES=DATA.area_reserva, PRO=DATA.proteccion;
+const byId=Object.fromEntries(DATA.puntos.map(p=>[p.id,p]));
+const EMIN=Math.min(...P.map(p=>p.altitud)), EMAX=Math.max(...P.map(p=>p.altitud));
+document.getElementById('emin').textContent=EMIN; document.getElementById('emax').textContent=EMAX;
+const lonc=P.reduce((s,p)=>s+p.lon,0)/P.length, latc=P.reduce((s,p)=>s+p.lat,0)/P.length;
+function hexToRgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]}
+const STOPS=[[0,'#3f8f5f'],[.5,'#d3ad52'],[1,'#a9662f']];
+function elevColor(e){let t=(e-EMIN)/(EMAX-EMIN||1);t=Math.max(0,Math.min(1,t));let i=t<=.5?0:1;
+  const [t0,c0]=STOPS[i],[t1,c1]=STOPS[i+1],f=(t-t0)/(t1-t0),a=hexToRgb(c0),b=hexToRgb(c1);
+  return `rgb(${a.map((v,k)=>Math.round(v+(b[k]-v)*f)).join(',')})`;}
+function tkey(p){return p.tipo.startsWith('Obra')?'ot':p.tipo.startsWith('Cámara')?'cd':'tq';}
+function symSvg(p){const c=elevColor(p.altitud),k=tkey(p),s=k==='ot'?30:26;
+  let sh;
+  if(k==='ot') sh=`<polygon points="${s/2},3 ${s-3},${s-4} 3,${s-4}" fill="${c}" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/>`;
+  else if(k==='cd') sh=`<rect x="${s/2-7.5}" y="${s/2-7.5}" width="15" height="15" transform="rotate(45 ${s/2} ${s/2})" fill="${c}" stroke="#fff" stroke-width="2.2"/>`;
+  else sh=`<circle cx="${s/2}" cy="${s/2}" r="8.5" fill="${c}" stroke="#fff" stroke-width="2.2"/>`;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">${sh}</svg>`;}
+
+const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const OSM='https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const DEM='https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
+let map;
+try{
+  map = new maplibregl.Map({
+    container:'map', maxPitch:80, attributionControl:{compact:true},
+    center:[lonc,latc], zoom:11.3, pitch:62, bearing:-18,
+    style:{version:8,
+      sources:{
+        sat:{type:'raster',tiles:[ESRI],tileSize:256,maxzoom:19,attribution:'Imagery © Esri, Maxar, Earthstar Geographics'},
+        osm:{type:'raster',tiles:[OSM],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap'},
+        dem:{type:'raster-dem',tiles:[DEM],encoding:'terrarium',tileSize:256,maxzoom:15,attribution:'Terrain: Terrain Tiles / AWS'}
+      },
+      layers:[
+        {id:'bg',type:'background',paint:{'background-color':'#cdd9d7'}},
+        {id:'sat',type:'raster',source:'sat'},
+        {id:'osm',type:'raster',source:'osm',layout:{visibility:'none'}},
+        {id:'hillshade',type:'hillshade',source:'dem',paint:{'hillshade-exaggeration':0.45,'hillshade-shadow-color':'#40372c'}}
+      ],
+      sky:{'sky-color':'#8fbce6','horizon-color':'#e7eff2','fog-color':'#eef3f2','sky-horizon-blend':0.6,'horizon-fog-blend':0.5,'fog-ground-blend':0.4},
+      terrain:{source:'dem',exaggeration:1.6}
+    }
+  });
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-left');
+  map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
+
+  let firstBad=true;
+  map.on('error',e=>{ if(firstBad){firstBad=false; document.getElementById('note').style.display='block';} });
+
+  map.on('load',()=>{
+    // área de reserva
+    if(RES){
+      map.addSource('reserva',{type:'geojson',data:{type:'Feature',geometry:{type:'Polygon',coordinates:[RES.poligono.concat([RES.poligono[0]])]}}});
+      map.addLayer({id:'reserva-fill',type:'fill',source:'reserva',paint:{'fill-color':'#c98a2e','fill-opacity':0.35}});
+      map.addLayer({id:'reserva-line',type:'line',source:'reserva',paint:{'line-color':'#b8791f','line-width':2.5}});
+    }
+    // zona de protección 250 m
+    if(PRO){
+      const it=byId[PRO.centro], N=48, ring=[], dlat=PRO.radio_m/111320, dlon=PRO.radio_m/(111320*Math.cos(it.lat*Math.PI/180));
+      for(let i=0;i<=N;i++){const a=i/N*2*Math.PI; ring.push([it.lon+dlon*Math.cos(a), it.lat+dlat*Math.sin(a)]);}
+      map.addSource('prot',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:ring}}});
+      map.addLayer({id:'prot-line',type:'line',source:'prot',paint:{'line-color':'#0d3b4f','line-width':1.6,'line-dasharray':[3,2]}});
+    }
+    // marcadores por tipo
+    P.forEach(p=>{
+      const el=document.createElement('div'); el.className='mk';
+      el.innerHTML=symSvg(p)+`<span class="mklab">${p.id}</span>`;
+      const pop=new maplibregl.Popup({offset:16,closeButton:false}).setHTML(
+        `<div class="lp-code">${p.id} · ${p.tipo}</div><div class="lp-name">${p.nombre}</div>`+
+        `<div class="lp-kv">${p.altitud} msnm<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}</div>`);
+      new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([p.lon,p.lat]).setPopup(pop).addTo(map);
+    });
+    fitAll();
+  });
+
+  function fitAll(){
+    const b=new maplibregl.LngLatBounds();
+    P.forEach(p=>b.extend([p.lon,p.lat]));
+    if(RES) RES.poligono.forEach(v=>b.extend(v));
+    map.fitBounds(b,{padding:70,animate:false});
+    map.setPitch(62); map.setBearing(-18);
+  }
+
+  // controles
+  function setBase(sat){
+    map.setLayoutProperty('sat','visibility',sat?'visible':'none');
+    map.setLayoutProperty('osm','visibility',sat?'none':'visible');
+    document.getElementById('b-sat').setAttribute('aria-pressed',sat);
+    document.getElementById('b-calles').setAttribute('aria-pressed',!sat);
+  }
+  document.getElementById('b-sat').onclick=()=>setBase(true);
+  document.getElementById('b-calles').onclick=()=>setBase(false);
+  document.querySelectorAll('[data-ex]').forEach(btn=>btn.onclick=()=>{
+    document.querySelectorAll('[data-ex]').forEach(x=>x.removeAttribute('aria-pressed'));
+    btn.setAttribute('aria-pressed','true');
+    map.setTerrain({source:'dem',exaggeration:+btn.dataset.ex});
+  });
+  document.getElementById('b-reset').onclick=fitAll;
+}catch(err){
+  document.getElementById('note').style.display='block';
+  console.error(err);
+}
+</script>
+</body>
+</html>
